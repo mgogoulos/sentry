@@ -1,5 +1,5 @@
 ---
-created: '2021-02-24T17:21:52.103636Z'
+created: '2021-02-24T17:26:20.615396Z'
 creator: sentry
 source: tests/sentry/relay/test_config.py
 ---
@@ -12,6 +12,11 @@ config:
     scrubDefaults: true
     scrubIpAddresses: false
     sensitiveFields: []
+  operationNameBreakdown:
+  - http
+  - db
+  - browser
+  - resource
   piiConfig:
     applications:
       $string:

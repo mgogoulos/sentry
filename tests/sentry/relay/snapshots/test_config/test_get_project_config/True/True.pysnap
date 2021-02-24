@@ -1,5 +1,5 @@
 ---
-created: '2021-02-24T17:21:52.409196Z'
+created: '2021-02-24T17:26:20.821755Z'
 creator: sentry
 source: tests/sentry/relay/test_config.py
 ---
@@ -81,6 +81,11 @@ config:
   groupingConfig:
     enhancements: eJybzDhxY3J-bm5-npWRgaGlroGxrpHxBABcTQcY
     id: newstyle:2019-10-29
+  operationNameBreakdown:
+  - http
+  - db
+  - browser
+  - resource
   piiConfig:
     applications:
       $string:
