@@ -96,11 +96,8 @@ class EventEntries extends React.Component<Props, State> {
       );
       this.setState({hasProGuardError: debugFiles.length > 1});
     } catch (error) {
-      Sentry.withScope(scope => {
-        scope.setLevel(Sentry.Severity.Error);
-        Sentry.captureException(error);
-        // do nothing, the UI will not display extra error details
-      });
+      Sentry.captureException(error);
+      // do nothing, the UI will not display extra error details
     }
   }
 
