@@ -9,7 +9,7 @@ import {t} from 'app/locale';
 
 type Error = {
   type: string;
-  message: string;
+  message: React.ReactNode;
   data: {
     name?: string;
     message?: string;
@@ -39,7 +39,7 @@ class EventErrorItem extends React.Component<Props, State> {
     isOpen: false,
   };
 
-  shouldComponentUpdate(_nextProps, nextState) {
+  shouldComponentUpdate(_nextProps: Props, nextState: State) {
     return this.state.isOpen !== nextState.isOpen;
   }
 

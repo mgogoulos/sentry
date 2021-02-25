@@ -1,7 +1,9 @@
 import React from 'react';
 import styled from '@emotion/styled';
+import * as Sentry from '@sentry/react';
 import {Location} from 'history';
 
+import {Client} from 'app/api';
 import ErrorBoundary from 'app/components/errorBoundary';
 import EventContexts from 'app/components/events/contexts';
 import EventContextSummary from 'app/components/events/contextSummary/contextSummary';
@@ -23,10 +25,12 @@ import EventUserFeedback from 'app/components/events/userFeedback';
 import {t} from 'app/locale';
 import space from 'app/styles/space';
 import {Group, Organization, Project, SharedViewOrganization} from 'app/types';
-import {Entry, Event} from 'app/types/event';
+import {Image} from 'app/types/debugImage';
+import {Entry, EntryType, Event} from 'app/types/event';
 import {isNotSharedOrganization} from 'app/types/utils';
 import {objectIsEmpty} from 'app/utils';
 import {analytics} from 'app/utils/analytics';
+import withApi from 'app/utils/withApi';
 import withOrganization from 'app/utils/withOrganization';
 
 import EventEntry from './eventEntry';
@@ -45,25 +49,25 @@ type Props = {
   event: Event;
   project: Project;
   location: Location;
-
+  api: Client;
   group?: Group;
   className?: string;
 } & typeof defaultProps;
 
-class EventEntries extends React.Component<Props> {
+type State = {
+  hasProGuardError: boolean;
+};
+
+class EventEntries extends React.Component<Props, State> {
   static defaultProps = defaultProps;
 
+  state: State = {
+    hasProGuardError: false,
+  };
+
   componentDidMount() {
-    const {event} = this.props;
-
-    if (!event || !event.errors || !(event.errors.length > 0)) {
-      return;
-    }
-    const errors = event.errors;
-    const errorTypes = errors.map(errorEntries => errorEntries.type);
-    const errorMessages = errors.map(errorEntries => errorEntries.message);
-
-    this.recordIssueError(errorTypes, errorMessages);
+    this.checkProGuardError();
+    this.recordIssueError();
   }
 
   shouldComponentUpdate(nextProps: Props) {
@@ -75,8 +79,62 @@ class EventEntries extends React.Component<Props> {
     );
   }
 
-  recordIssueError(errorTypes: any[], errorMessages: string[]) {
+  async fetchDebugFile(query: string) {
+    const {api, organization, project} = this.props;
+    try {
+      const debugFiles = await api.requestPromise(
+        `/projects/${organization.slug}/${project.slug}/files/dsyms/`,
+        {
+          method: 'GET',
+          query: {
+            query,
+            file_formats: organization.features?.includes('android-mappings')
+              ? ['breakpad', 'macho', 'elf', 'pe', 'pdb', 'sourcebundle']
+              : undefined,
+          },
+        }
+      );
+      this.setState({hasProGuardError: debugFiles.length > 1});
+    } catch (error) {
+      Sentry.withScope(scope => {
+        scope.setLevel(Sentry.Severity.Error);
+        Sentry.captureException(error);
+        // do nothing, the UI will not display extra error details
+      });
+    }
+  }
+
+  checkProGuardError() {
+    const {event} = this.props;
+
+    // const threads =
+    //   event.entries.find(e => e.type === EntryType.THREADS)?.data?.values ?? [];
+    // const bestThread = findBestThread(threads);
+
+    const debugImages = event?.entries.find(e => e.type === EntryType.DEBUGMETA)?.data
+      .images as undefined | Array<Image>;
+
+    const proGuardImage = debugImages?.find(
+      debugImage => debugImage.type === 'proguard' && !!debugImage.uuid
+    );
+
+    if (!proGuardImage?.uuid) {
+      return;
+    }
+
+    this.fetchDebugFile(proGuardImage.uuid);
+  }
+
+  recordIssueError() {
     const {organization, project, event} = this.props;
+
+    if (!event || !event.errors || !(event.errors.length > 0)) {
+      return;
+    }
+
+    const errors = event.errors;
+    const errorTypes = errors.map(errorEntries => errorEntries.type);
+    const errorMessages = errors.map(errorEntries => errorEntries.message);
 
     const orgId = organization.id;
     const platform = project.platform;
@@ -131,9 +189,9 @@ class EventEntries extends React.Component<Props> {
       showTagSummary,
       location,
     } = this.props;
+    const {hasProGuardError} = this.state;
 
-    const features =
-      organization && organization.features ? new Set(organization.features) : new Set();
+    const features = new Set(organization?.features);
     const hasQueryFeature = features.has('discover-query');
 
     if (!event) {
@@ -143,19 +201,19 @@ class EventEntries extends React.Component<Props> {
         </div>
       );
     }
+
     const hasContext = !objectIsEmpty(event.user) || !objectIsEmpty(event.contexts);
-    const hasErrors = !objectIsEmpty(event.errors);
+    const hasErrors = !objectIsEmpty(event.errors) || hasProGuardError;
 
     return (
       <div className={className} data-test-id="event-entries">
         {hasErrors && (
-          <ErrorContainer>
-            <EventErrors
-              event={event}
-              orgSlug={organization.slug}
-              projectSlug={project.slug}
-            />
-          </ErrorContainer>
+          <EventErrors
+            event={event}
+            orgSlug={organization.slug}
+            projectSlug={project.slug}
+            hasProGuardError={hasProGuardError}
+          />
         )}
         {!isShare &&
           isNotSharedOrganization(organization) &&
@@ -174,7 +232,7 @@ class EventEntries extends React.Component<Props> {
             report={event.userReport}
             orgId={organization.slug}
             issueId={group.id}
-            includeBorder={!hasErrors}
+            includeBorder={false}
           />
         )}
         {hasContext && showTagSummary && <EventContextSummary event={event} />}
@@ -260,5 +318,5 @@ const StyledEventUserFeedback = styled(EventUserFeedback)<StyledEventUserFeedbac
 `;
 
 // TODO(ts): any required due to our use of SharedViewOrganization
-export default withOrganization<any>(EventEntries);
+export default withOrganization<any>(withApi(EventEntries));
 export {BorderlessEventEntries};

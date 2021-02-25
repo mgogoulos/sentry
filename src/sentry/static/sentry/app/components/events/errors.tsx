@@ -8,11 +8,13 @@ import uniqWith from 'lodash/uniqWith';
 import {Client} from 'app/api';
 import Button from 'app/components/button';
 import EventErrorItem from 'app/components/events/errorItem';
+import ExternalLink from 'app/components/links/externalLink';
 import {IconWarning} from 'app/icons';
-import {t, tn} from 'app/locale';
+import {t, tct, tn} from 'app/locale';
 import space from 'app/styles/space';
 import {Artifact, Organization, Project} from 'app/types';
 import {Event} from 'app/types/event';
+import {objectIsEmpty} from 'app/utils';
 import {Theme} from 'app/utils/theme';
 import withApi from 'app/utils/withApi';
 
@@ -24,6 +26,7 @@ type Props = {
   api: Client;
   orgSlug: Organization['slug'];
   projectSlug: Project['slug'];
+  hasProGuardError: boolean;
   event: Event;
 };
 
@@ -51,6 +54,35 @@ class EventErrors extends React.Component<Props, State> {
   componentDidUpdate(prevProps: Props) {
     if (this.props.event.id !== prevProps.event.id) {
       this.checkSourceCodeErrors();
+    }
+  }
+
+  async fetchReleaseArtifacts(query: string) {
+    const {api, orgSlug, event, projectSlug} = this.props;
+    const {release} = event;
+    const releaseVersion = release?.version;
+
+    if (!releaseVersion || !query) {
+      return;
+    }
+
+    try {
+      const releaseArtifacts = await api.requestPromise(
+        `/projects/${orgSlug}/${projectSlug}/releases/${encodeURIComponent(
+          releaseVersion
+        )}/files/?query=${query}`,
+        {
+          method: 'GET',
+        }
+      );
+
+      this.setState({releaseArtifacts});
+    } catch (error) {
+      Sentry.withScope(scope => {
+        scope.setLevel(Sentry.Severity.Error);
+        Sentry.captureException(error);
+        // do nothing, the UI will not display extra error details
+      });
     }
   }
 
@@ -90,46 +122,41 @@ class EventErrors extends React.Component<Props, State> {
     }
   }
 
-  async fetchReleaseArtifacts(query: string) {
-    const {api, orgSlug, event, projectSlug} = this.props;
-    const {release} = event;
-    const releaseVersion = release?.version;
-
-    if (!releaseVersion || !query) {
-      return;
-    }
-
-    try {
-      const releaseArtifacts = await api.requestPromise(
-        `/projects/${orgSlug}/${projectSlug}/releases/${encodeURIComponent(
-          releaseVersion
-        )}/files/?query=${query}`,
-        {
-          method: 'GET',
-        }
-      );
-
-      this.setState({releaseArtifacts});
-    } catch (error) {
-      Sentry.captureException(error);
-      // do nothing, the UI will not display extra error details
-    }
-  }
-
   toggle = () => {
     this.setState(state => ({isOpen: !state.isOpen}));
   };
 
-  uniqueErrors = (errors: any[]) => uniqWith(errors, isEqual);
-
   render() {
-    const {event} = this.props;
+    const {event, hasProGuardError} = this.props;
     const {isOpen, releaseArtifacts} = this.state;
     const {dist} = event;
 
-    // XXX: uniqueErrors is not performant with large datasets
+    // return null
+
+    if (!hasProGuardError && objectIsEmpty(event.errors)) {
+      return null;
+    }
+
+    // XXX: uniqWith returns unique errors and is not performant with large datasets
     const errors =
-      event.errors.length > MAX_ERRORS ? event.errors : this.uniqueErrors(event.errors);
+      event.errors.length > MAX_ERRORS ? event.errors : uniqWith(event.errors, isEqual);
+
+    if (hasProGuardError) {
+      errors.push({
+        data: {name: 'proguard'},
+        message: tct('It seems that the [gradle] plugin was not correctly configured', {
+          gradle: (
+            <ExternalLink
+              href="https://docs.sentry.io/platforms/android/proguard/#gradle"
+              openInNewTab
+            >
+              Graddle
+            </ExternalLink>
+          ),
+        }),
+        type: 'proguard_error',
+      });
+    }
 
     return (
       <StyledBanner priority="danger">
