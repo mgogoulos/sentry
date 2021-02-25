@@ -150,7 +150,7 @@ class EventErrors extends React.Component<Props, State> {
               href="https://docs.sentry.io/platforms/android/proguard/#gradle"
               openInNewTab
             >
-              Graddle
+              gradle
             </ExternalLink>
           ),
         }),
